@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>pure-agent</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+        background: #0e0e10;
+        color: #efeff1;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        background: #18181b;
+        padding: 12px 20px;
+        border-bottom: 1px solid #2a2a30;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo {
+        width: 28px;
+        height: 28px;
+        background: linear-gradient(135deg, #5b9dff 0%, #2563eb 100%);
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        color: white;
+      }
+      h1 { margin: 0; font-size: 16px; font-weight: 600; }
+      .status { font-size: 11px; color: #9ca3af; margin-left: auto; }
+      .status.online::before {
+        content: "●";
+        color: #10b981;
+        margin-right: 4px;
+      }
+      main {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        overflow: hidden;
+      }
+      .sidebar {
+        background: #141417;
+        border-right: 1px solid #2a2a30;
+        overflow-y: auto;
+        padding: 12px;
+      }
+      .session-item {
+        padding: 10px 12px;
+        border-radius: 6px;
+        margin-bottom: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        transition: background 0.15s;
+      }
+      .session-item:hover { background: #1f1f23; }
+      .session-item.active { background: #2563eb; color: white; }
+      .new-session {
+        background: #1f1f23;
+        color: #efeff1;
+        border: 1px dashed #3a3a40;
+        padding: 10px 12px;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        cursor: pointer;
+        text-align: center;
+        font-size: 13px;
+        width: 100%;
+      }
+      .new-session:hover { background: #2a2a30; }
+      .chat-area {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+      }
+      .message {
+        margin-bottom: 16px;
+        max-width: 80%;
+      }
+      .message.user { margin-left: auto; }
+      .message .role {
+        font-size: 11px;
+        color: #9ca3af;
+        margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .message .content {
+        background: #1f1f23;
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 14px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+      .message.user .content { background: #2563eb; color: white; }
+      .message.assistant .content { background: #1f1f23; }
+      .message.tool .content {
+        background: #1a1a1f;
+        border: 1px solid #2a2a30;
+        font-family: "SF Mono", Menlo, monospace;
+        font-size: 12px;
+      }
+      .input-bar {
+        background: #18181b;
+        border-top: 1px solid #2a2a30;
+        padding: 12px 20px;
+        display: flex;
+        gap: 8px;
+      }
+      .input-bar input {
+        flex: 1;
+        background: #1f1f23;
+        color: #efeff1;
+        border: 1px solid #2a2a30;
+        padding: 10px 14px;
+        border-radius: 6px;
+        font-size: 14px;
+        outline: none;
+      }
+      .input-bar input:focus { border-color: #2563eb; }
+      .input-bar button {
+        background: #2563eb;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .input-bar button:disabled { background: #3a3a40; cursor: not-allowed; }
+      .empty {
+        text-align: center;
+        margin-top: 80px;
+        color: #6b7280;
+      }
+      .empty h2 { color: #9ca3af; font-weight: 500; }
+      code { font-family: "SF Mono", Menlo, monospace; background: #1f1f23; padding: 2px 4px; border-radius: 3px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo">P</div>
+      <h1>pure-agent</h1>
+      <div class="status" id="status">connecting...</div>
+    </header>
+    <main>
+      <aside class="sidebar">
+        <button class="new-session" onclick="newSession()">+ New session</button>
+        <div id="sessions"></div>
+      </aside>
+      <section class="chat-area">
+        <div class="messages" id="messages">
+          <div class="empty">
+            <h2>Welcome to pure-agent</h2>
+            <p>Type a message to start. The agent uses <code>MiniMax-Text-01</code>.</p>
+          </div>
+        </div>
+        <div class="input-bar">
+          <input
+            id="input"
+            type="text"
+            placeholder="Ask the agent anything..."
+            autofocus
+            onkeydown="if(event.key==='Enter') send()"
+          />
+          <button id="send-btn" onclick="send()">Send</button>
+        </div>
+      </section>
+    </main>
+    <script>
+      // Read gateway port from ?gateway=PORT query string; default 18790.
+      // (Phase 9: avoid PilotDeck's 18789.)
+      const urlParams = new URLSearchParams(window.location.search);
+      const gatewayPort = urlParams.get("gateway") || "18790";
+      let gateway = `http://127.0.0.1:${gatewayPort}`;
+      let wsBase = `ws://127.0.0.1:${gatewayPort}`;
+      let currentSessionId = null;
+      let ws = null;
+
+      async function health() {
+        try {
+          const r = await fetch(gateway + "/health");
+          const j = await r.json();
+          document.getElementById("status").textContent =
+            `v${j.version} · ${j.sessions} sessions · ${Math.round(j.uptime_s)}s`;
+          document.getElementById("status").classList.add("online");
+        } catch (e) {
+          document.getElementById("status").textContent = "offline";
+        }
+      }
+      setInterval(health, 5000);
+      health();
+
+      async function listSessions() {
+        const r = await fetch(gateway + "/sessions");
+        const j = await r.json();
+        const div = document.getElementById("sessions");
+        div.innerHTML = "";
+        for (const s of j.sessions) {
+          const el = document.createElement("div");
+          el.className = "session-item" + (s.id === currentSessionId ? " active" : "");
+          el.textContent = s.title || s.id;
+          el.onclick = () => openSession(s.id);
+          div.appendChild(el);
+        }
+      }
+
+      async function newSession() {
+        const r = await fetch(gateway + "/sessions", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({title: "session " + new Date().toISOString().slice(11, 16)}),
+        });
+        const j = await r.json();
+        currentSessionId = j.id;
+        await listSessions();
+        await openSession(currentSessionId);
+      }
+
+      async function openSession(id) {
+        currentSessionId = id;
+        await listSessions();
+        const r = await fetch(gateway + "/sessions/" + id);
+        const j = await r.json();
+        const msg = document.getElementById("messages");
+        msg.innerHTML = "";
+        if (j.messages.length === 0) {
+          msg.innerHTML = '<div class="empty"><p>No messages yet. Send one below.</p></div>';
+          return;
+        }
+        for (const m of j.messages) {
+          const div = document.createElement("div");
+          div.className = "message " + m.role;
+          div.innerHTML = `<div class="role">${m.role}</div><div class="content">${escapeHtml(m.text || "")}</div>`;
+          msg.appendChild(div);
+        }
+        msg.scrollTop = msg.scrollHeight;
+      }
+
+      function escapeHtml(s) {
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+
+      async function send() {
+        if (!currentSessionId) {
+          await newSession();
+        }
+        const input = document.getElementById("input");
+        const msg = input.value.trim();
+        if (!msg) return;
+        input.value = "";
+        const btn = document.getElementById("send-btn");
+        btn.disabled = true;
+        btn.textContent = "...";
+
+        // append user message
+        const mdiv = document.getElementById("messages");
+        if (mdiv.querySelector(".empty")) mdiv.innerHTML = "";
+        const userDiv = document.createElement("div");
+        userDiv.className = "message user";
+        userDiv.innerHTML = `<div class="role">user</div><div class="content">${escapeHtml(msg)}</div>`;
+        mdiv.appendChild(userDiv);
+
+        // append pending assistant
+        const aDiv = document.createElement("div");
+        aDiv.className = "message assistant";
+        aDiv.innerHTML = `<div class="role">assistant</div><div class="content"><em>thinking...</em></div>`;
+        mdiv.appendChild(aDiv);
+        mdiv.scrollTop = mdiv.scrollHeight;
+
+        // Use REST /chat for now (WS streaming is Phase 9)
+        try {
+          const r = await fetch(gateway + "/sessions/" + currentSessionId + "/chat", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({message: msg}),
+          });
+          const j = await r.json();
+          aDiv.querySelector(".content").textContent = j.response || "(no response)";
+        } catch (e) {
+          aDiv.querySelector(".content").textContent = "ERROR: " + e.message;
+        }
+        mdiv.scrollTop = mdiv.scrollHeight;
+        btn.disabled = false;
+        btn.textContent = "Send";
+      }
+    </script>
+  </body>
+</html>
