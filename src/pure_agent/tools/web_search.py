@@ -222,7 +222,8 @@ class WebSearchParams(BaseModel):
     query: str = Field(..., min_length=1, description="Search query text")
     max_results: int = Field(5, ge=1, le=20, description="Max results to return")
     provider: str | None = Field(
-        None, description="Force provider (ddg / brave). Default: auto."
+        None,
+        description="Force provider (tavily / brave / ddg). Default: auto-detect from env (tavily>brave>ddg).",
     )
 
 
@@ -230,7 +231,10 @@ class WebSearchTool(Tool):
     name: ClassVar[str] = "web_search"
     description: ClassVar[str] = (
         "Search the web. Returns a list of {title, url, snippet} results. "
-        "Uses DuckDuckGo by default; 24h cache. Set provider='brave' if a Brave API key is configured."
+        "Provider priority: tavily (best) > brave > ddg (fallback). "
+        "Set provider='tavily' | 'brave' | 'ddg' to force a specific one. "
+        "If TAVILY_API_KEY is set, Tavily is used automatically (best for AI agents). "
+        "24h cache. provider='tavily' returns clean AI-ready results."
     )
     parameters: ClassVar[dict] = WebSearchParams.model_json_schema()
     parameters_model: ClassVar[type[BaseModel]] = WebSearchParams

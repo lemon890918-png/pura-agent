@@ -126,6 +126,28 @@ def _build_loop(
         skills_text = render_skills_prompt(skills)
         if skills_text:
             system_prompt = (system_prompt + "\n\n" + skills_text) if system_prompt else skills_text
+    # Phase 11: auto-recall semantic memory facts into system prompt
+    try:
+        from pure_agent.config import get_home
+        import sqlite3
+        db_path = get_home() / "memory.db"
+        if not db_path.exists():
+            pass  # no memory yet
+        else:
+            conn = sqlite3.connect(str(db_path))
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT fact FROM memory_semantic WHERE project_id='default' "
+                "ORDER BY confidence DESC, created_at DESC LIMIT 5"
+            )
+            facts = [r[0] for r in cur.fetchall()]
+            conn.close()
+            if facts:
+                fact_text = "\n".join(f"- {f[:200]}" for f in facts)
+                memory_section = f"## Recalled Memory (from past sessions / synced from other agents)\n{fact_text}"
+                system_prompt = (system_prompt + "\n\n" + memory_section) if system_prompt else memory_section
+    except Exception:
+        pass  # best-effort, never crash chat on memory recall failure
     return AIAgentLoop(
         provider=provider,
         tools=reg,
