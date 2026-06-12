@@ -275,6 +275,9 @@ class AIAgentLoop:
                     messages=messages,
                 )
 
+            # Reset write-call tracker each turn — only counts the *current* turn's calls
+            # (handled below in tool-call tracking)
+
             # Phase 4: drain steer queue and inject into messages
             if self.steer_queue is not None:
                 injected = self.steer_queue.drain()
@@ -375,7 +378,64 @@ class AIAgentLoop:
                     self._emit("checkpoint_failed", error=str(e))
 
             if not tool_uses:
-                # LLM returned text without tool calls → completion
+                # LLM returned text without tool calls
+                # Anti-hallucination guard: detect prose-only output that
+                # describes tool calls in code blocks / function-call syntax
+                # (e.g. ```typescript\nfunctions.write_file({...})```)
+                # instead of actually emitting the tool call.
+                _js_call_patterns = ("functions.write_file", "functions.edit_file",
+                                     "functions.read_file", "tools.write_file",
+                                     "tools.edit_file", "```typescript",
+                                     "```python\nwrite_file", "```python\nedit_file",
+                                     "writing the file", "save the file", "save the optimized",
+                                     "save the corrected", "Here is the updated",
+                                     "Here is the optimized", "Here are the tool calls",
+                                     "These calls will create", "final tool calls",
+                                     "the corrected file", "the fixed file",
+                                     "I have updated", "I have written", "the new app.py")
+                _write_verbs = _js_call_patterns + (
+                    "wrote", "saved", "created the file", "modified", "updated the file",
+                    "refactor", "fix the bug", "fixed the bug", "saved the file",
+                    "implement the changes", "implementation", "the file has been",
+                    "write_file", "edit_file", "calling", "call write_file",
+                    "use write_file", "use edit_file", "should call")
+                text_lower = last_assistant_text.lower()
+                wrote_claim = any(v in text_lower for v in _write_verbs)
+                wrote_called = getattr(self, "_write_called", False)
+                any_file_action = any(
+                    getattr(m, 'tool_calls', None) for m in messages
+                    if hasattr(m, 'tool_calls') and m.tool_calls
+                )
+                # After 2 turns of "describe tool call but don't emit", we know
+                # the model is stuck — break the loop with a hard warning.
+                stuck_turns = getattr(self, "_stuck_turns", 0) + 1 if (wrote_claim and not wrote_called) else 0
+                self._stuck_turns = stuck_turns
+                if turn < cap:
+                    if wrote_claim and not wrote_called:
+                        reminder = (
+                            "\n\n[System] STOP. You described tool calls in code blocks "
+                            "(e.g. ```typescript\nfunctions.write_file({...})```) but the "
+                            "write_file/edit_file tool was NOT actually invoked. The OpenAI "
+                            "tool-calling protocol is NOT text — you must use the tool_calls "
+                            "channel. Stop pasting JSON in code blocks. Instead, when you have "
+                            "file content to write, emit a tool call with name='write_file' "
+                            "and arguments={'path': '...', 'content': '...'}. If you are truly "
+                            "stuck, reply with exactly NO_ACTION_NEEDED and stop."
+                        )
+                    elif turn >= 2 and not any_file_action:
+                        reminder = (
+                            "\n\n[System] You keep responding with prose but no tool calls. "
+                            "If the user asked you to create, modify, or fix a file, you MUST "
+                            "call read_file → write_file (or edit_file). Pass the COMPLETE file "
+                            "content as the 'content' parameter, starting at column 0. If no "
+                            "action is needed, reply with exactly NO_ACTION_NEEDED."
+                        )
+                    else:
+                        reminder = None
+                    if reminder:
+                        messages.append(CanonicalMessage.from_text(Role.USER, reminder))
+                        self._emit("hallucination_guard", turn=turn)
+                        continue
                 self._emit("turn_end", turn=turn, stopped_reason="completed")
                 return AgentRunResult(
                     final_text=last_assistant_text,
@@ -391,6 +451,9 @@ class AIAgentLoop:
                 self._emit("tool_call_start", call=tu)
                 result = await self._execute_tool_call(tu)
                 self._on_tool_call(tu.name, tu.arguments, result)
+                # Track write-style calls for hallucination guard
+                if tu.name in ("write_file", "edit_file", "create_file"):
+                    self._write_called = True
                 self._emit(
                     "tool_call_end",
                     call=tu,

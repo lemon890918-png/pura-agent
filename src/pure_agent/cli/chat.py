@@ -120,6 +120,17 @@ def _build_loop(
     if extra_mcp_cfgs:
         for cfg in extra_mcp_cfgs:
             reg.register(_LazyMCPProxy(MCPServer(cfg), cfg))
+    # Always prepend an "execute, don't describe" anchor so the model
+    # prefers tool calls over prose descriptions, especially after
+    # large skill loads that bias toward analysis-style output.
+    exec_anchor = (
+        "You are an action-oriented agent. When the user asks you to create, "
+        "modify, fix, or analyze a file, you MUST call the appropriate tool "
+        "(read_file, write_file, edit_file) with concrete content — not just "
+        "describe what you would do. Only respond in plain text for pure Q&A "
+        "or planning questions.\n\n"
+    )
+    system_prompt = exec_anchor + (system_prompt or "")
     # Phase 10: append skills to system prompt
     if skills:
         from pure_agent.skills import render_skills_prompt
@@ -210,7 +221,7 @@ async def _run_one(
         brave_api_key=brave_api_key,
         tavily_api_key=tavily_api_key,
         skills=skills,
-        extra_mcp_servers=extra_mcp_servers,
+        extra_mcp_cfgs=extra_mcp_servers,
     )
 
     def on_event(t: str, p: dict) -> None:

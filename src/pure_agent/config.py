@@ -144,6 +144,26 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return out
 
 
+def _filter_known_fields(d: dict[str, Any], cls: type) -> dict[str, Any]:
+    """Filter a dict to only keys that are valid init params of `cls`.
+
+    Prevents TypeError when config.yaml has stale/extra keys (e.g. when
+    syncing from another agent's config that uses different field names).
+    Unknown keys are silently dropped — they live on in cfg.raw if needed.
+    """
+    import dataclasses
+    if dataclasses.is_dataclass(cls):
+        valid = {f.name for f in dataclasses.fields(cls)}
+    else:
+        # Fallback: use __init__ signature
+        import inspect
+        try:
+            valid = set(inspect.signature(cls).parameters.keys())
+        except Exception:
+            return d
+    return {k: v for k, v in d.items() if k in valid}
+
+
 def _build_paths(home: Path) -> Paths:
     return Paths(
         home=home,
@@ -190,7 +210,7 @@ def load_config(home: Path | None = None) -> Config:
         except ValueError:
             pass
 
-    agent = AgentConfig(**merged["agent"])
+    agent = AgentConfig(**_filter_known_fields(merged["agent"], AgentConfig))
     server = ServerConfig(
         host=merged["server"]["host"],
         port=merged["server"]["port"],

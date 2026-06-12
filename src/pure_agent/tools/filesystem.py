@@ -150,7 +150,12 @@ class WriteFileTool(Tool):
     name: ClassVar[str] = "write_file"
     description: ClassVar[str] = (
         "Write content to a file atomically (tmp + rename). Overwrites existing files. "
-        "Creates parent directories if missing. Bounded by sandbox to project root."
+        "Creates parent directories if missing. Bounded by sandbox to project root. "
+        "CRITICAL: The 'content' parameter is the COMPLETE file content YOU write. "
+        "You must GENERATE the content yourself and pass it as the 'content' argument. "
+        "Do NOT just paste a code block describing the change — actually call this tool "
+        "with the full file content. Always use this tool to persist file changes; "
+        "do not rely on prose description alone."
     )
     parameters: ClassVar[dict] = WriteFileParams.model_json_schema()
     parameters_model: ClassVar[type[BaseModel]] = WriteFileParams
@@ -213,7 +218,9 @@ class EditFileTool(Tool):
     name: ClassVar[str] = "edit_file"
     description: ClassVar[str] = (
         "Edit a file by replacing old_string with new_string. By default replaces "
-        "exactly one occurrence; pass replace_all=true for global replace. Atomic write."
+        "exactly one occurrence; pass replace_all=true for global replace. Atomic write. "
+        "IMPORTANT: When the user asks you to fix a bug or modify a file, you MUST call "
+        "this tool (or write_file for full rewrites) — DO NOT just describe the change."
     )
     parameters: ClassVar[dict] = EditFileParams.model_json_schema()
     parameters_model: ClassVar[type[BaseModel]] = EditFileParams
