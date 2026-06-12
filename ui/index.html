@@ -44,14 +44,51 @@
       main {
         flex: 1;
         display: grid;
-        grid-template-columns: 280px 1fr;
+        grid-template-columns: 60px 260px 1fr;
         overflow: hidden;
       }
+      /* Left nav */
+      .nav-bar {
+        background: #141417;
+        border-right: 1px solid #2a2a30;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 12px 0;
+        gap: 8px;
+      }
+      .nav-item {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: #9ca3af;
+        transition: all 0.15s;
+        font-size: 18px;
+      }
+      .nav-item:hover { background: #1f1f23; color: #efeff1; }
+      .nav-item.active { background: #2563eb; color: white; }
+      .nav-item.bottom { margin-top: auto; }
+      /* Sidebar */
       .sidebar {
         background: #141417;
         border-right: 1px solid #2a2a30;
         overflow-y: auto;
         padding: 12px;
+        display: flex;
+        flex-direction: column;
+      }
+      .sidebar-header {
+        font-size: 12px;
+        font-weight: 600;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 12px;
+        padding: 0 4px;
       }
       .session-item {
         padding: 10px 12px;
@@ -143,6 +180,37 @@
         cursor: pointer;
       }
       .input-bar button:disabled { background: #3a3a40; cursor: not-allowed; }
+      /* Tab bar */
+      .tab-bar {
+        background: #18181b;
+        border-bottom: 1px solid #2a2a30;
+        display: flex;
+        gap: 4px;
+        padding: 8px 12px 0 12px;
+      }
+      .tab {
+        padding: 8px 16px;
+        border-radius: 6px 6px 0 0;
+        font-size: 13px;
+        cursor: pointer;
+        color: #9ca3af;
+        transition: all 0.15s;
+        margin-bottom: -1px;
+        border: 1px solid transparent;
+        border-bottom: none;
+      }
+      .tab:hover { color: #efeff1; }
+      .tab.active {
+        background: #0e0e10;
+        color: #efeff1;
+        border-color: #2a2a30;
+      }
+      .tab-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
       .empty {
         text-align: center;
         margin-top: 80px;
@@ -159,26 +227,135 @@
       <div class="status" id="status">connecting...</div>
     </header>
     <main>
-      <aside class="sidebar">
-        <button class="new-session" onclick="newSession()">+ New session</button>
-        <div id="sessions"></div>
-      </aside>
-      <section class="chat-area">
-        <div class="messages" id="messages">
-          <div class="empty">
-            <h2>Welcome to pure-agent</h2>
-            <p>Type a message to start. The agent uses <code>MiniMax-Text-01</code>.</p>
+      <!-- Left navigation bar -->
+      <nav class="nav-bar">
+        <div class="nav-item active" onclick="switchView('chat')" title="Chat">💬</div>
+        <div class="nav-item" onclick="switchView('skills')" title="Skills">⚡</div>
+        <div class="nav-item" onclick="switchView('automation')" title="Automation">⏰</div>
+        <div class="nav-item" onclick="switchView('files')" title="Files">📁</div>
+        <div class="nav-item" onclick="switchView('terminal')" title="Terminal">⌨️</div>
+        <div class="nav-item bottom" onclick="switchView('settings')" title="Settings">⚙️</div>
+      </nav>
+
+      <!-- Sidebar (dynamic based on active view) -->
+      <aside class="sidebar" id="sidebar">
+        <!-- Chat sessions view (default) -->
+        <div id="sidebar-chat" class="sidebar-view">
+          <div class="sidebar-header">Sessions</div>
+          <button class="new-session" onclick="newSession()">+ New session</button>
+          <div id="sessions"></div>
+        </div>
+
+        <!-- Skills view -->
+        <div id="sidebar-skills" class="sidebar-view" style="display: none;">
+          <div class="sidebar-header">Skills</div>
+          <div id="skills-list" style="gap: 4px; display: flex; flex-direction: column;">
+            <div class="session-item" onclick="openSkill('web-search')">🌐 Web Search</div>
+            <div class="session-item" onclick="openSkill('file-edit')">📝 File Edit</div>
+            <div class="session-item" onclick="openSkill('code-review')">🔍 Code Review</div>
+            <div class="session-item" onclick="openSkill('deploy')">🚀 Deploy</div>
           </div>
         </div>
-        <div class="input-bar">
-          <input
-            id="input"
-            type="text"
-            placeholder="Ask the agent anything..."
-            autofocus
-            onkeydown="if(event.key==='Enter') send()"
-          />
-          <button id="send-btn" onclick="send()">Send</button>
+
+        <!-- Automation view -->
+        <div id="sidebar-automation" class="sidebar-view" style="display: none;">
+          <div class="sidebar-header">Automation</div>
+          <button class="new-session" onclick="newAutomation()">+ New automation</button>
+          <div id="automations-list" style="gap: 4px; display: flex; flex-direction: column; margin-top: 8px;">
+            <div class="session-item">Daily 6:30 3D lottery prediction</div>
+            <div class="session-item">Weekly code cleanup</div>
+          </div>
+        </div>
+
+        <!-- Files view -->
+        <div id="sidebar-files" class="sidebar-view" style="display: none;">
+          <div class="sidebar-header">Project Files</div>
+          <div id="files-tree" style="font-size: 12px; line-height: 1.8;">
+            <div style="padding-left: 8px;">📁 src/</div>
+            <div style="padding-left: 20px;">📄 main.py</div>
+            <div style="padding-left: 20px;">📄 config.py</div>
+            <div style="padding-left: 8px;">📁 tests/</div>
+            <div style="padding-left: 20px;">📄 test_main.py</div>
+            <div style="padding-left: 8px;">📄 README.md</div>
+          </div>
+        </div>
+
+        <!-- Settings view -->
+        <div id="sidebar-settings" class="sidebar-view" style="display: none;">
+          <div class="sidebar-header">Settings</div>
+          <div style="padding: 12px; font-size: 13px; display: flex; flex-direction: column; gap: 12px;">
+            <div>
+              <label style="display: block; margin-bottom: 4px; color: #9ca3af;">Model</label>
+              <select style="width: 100%; background: #1f1f23; border: 1px solid #2a2a30; color: #efeff1; padding: 8px; border-radius: 6px;">
+                <option>doubao-seed-2-0-pro-260215</option>
+                <option>minimax-text-01</option>
+                <option>qwen3.6-35b</option>
+              </select>
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 4px; color: #9ca3af;">API Key</label>
+              <input type="password" style="width: 100%; background: #1f1f23; border: 1px solid #2a2a30; color: #efeff1; padding: 8px; border-radius: 6px;" value="sk-**************************" />
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 4px; color: #9ca3af;">Work Directory</label>
+              <input type="text" style="width: 100%; background: #1f1f23; border: 1px solid #2a2a30; color: #efeff1; padding: 8px; border-radius: 6px;" value="/Users/wenxin/work/pure-agent" />
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main content area with tabs -->
+      <section class="chat-area">
+        <!-- Tab bar -->
+        <div class="tab-bar" id="tab-bar">
+          <div class="tab active" onclick="switchTab('chat')">💬 Chat</div>
+          <div class="tab" onclick="switchTab('diff')">🔄 Diff</div>
+          <div class="tab" onclick="switchTab('terminal')">⌨️ Terminal</div>
+          <div class="tab" onclick="switchTab('preview')">👁️ Preview</div>
+        </div>
+
+        <!-- Tab content -->
+        <div class="tab-content active" id="tab-chat">
+          <div class="messages" id="messages">
+            <div class="empty">
+              <h2>Welcome to pure-agent</h2>
+              <p>Type a message to start. The agent uses <code>doubao-seed-2-0-pro-260215</code>.</p>
+            </div>
+          </div>
+          <div class="input-bar">
+            <input
+              id="input"
+              type="text"
+              placeholder="Ask the agent anything..."
+              autofocus
+              onkeydown="if(event.key==='Enter') send()"
+            />
+            <button id="send-btn" onclick="send()">Send</button>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-diff" style="display: none; padding: 20px; font-family: 'SF Mono', Menlo, monospace; font-size: 12px; overflow-y: auto;">
+          <div style="color: #9ca3af; margin-bottom: 12px;">Loading...</div>
+        </div>
+
+        <div class="tab-content" id="tab-terminal" style="display: none; padding: 0; flex: 1; background: #0e0e10; font-family: 'SF Mono', Menlo, monospace; font-size: 12px; overflow: hidden; display: flex; flex-direction: column;">
+          <div id="terminal-output" style="flex: 1; overflow-y: auto; padding: 12px;"></div>
+          <div style="display: flex; padding: 8px 12px; border-top: 1px solid #2a2a30; background: #18181b;">
+            <span style="color: #5b9dff; margin-right: 8px;">$</span>
+            <input
+              id="terminal-input"
+              type="text"
+              placeholder="Enter command..."
+              style="flex: 1; background: transparent; border: none; color: #efeff1; font-family: inherit; font-size: inherit; outline: none;"
+              onkeydown="if(event.key==='Enter') runTerminal()"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-preview" style="display: none; padding: 0; flex: 1;">
+          <iframe id="preview-iframe" style="width: 100%; height: 100%; border: none;" sandbox></iframe>
         </div>
       </section>
     </main>
@@ -191,6 +368,230 @@
       let wsBase = `ws://127.0.0.1:${gatewayPort}`;
       let currentSessionId = null;
       let ws = null;
+      let currentView = "chat";
+      let currentTab = "chat";
+
+      // Switch left sidebar view
+      function switchView(view) {
+        currentView = view;
+        // Update nav items
+        document.querySelectorAll(".nav-item").forEach(el => el.classList.remove("active"));
+        document.querySelector(`.nav-item[onclick="switchView('${view}')"]`).classList.add("active");
+        // Update sidebar views
+        document.querySelectorAll(".sidebar-view").forEach(el => el.style.display = "none");
+        document.getElementById(`sidebar-${view}`).style.display = "flex";
+        document.getElementById(`sidebar-${view}`).style.flexDirection = "column";
+      }
+
+      // Switch main content tab
+      function switchTab(tab) {
+        currentTab = tab;
+        // Update tabs
+        document.querySelectorAll(".tab").forEach(el => el.classList.remove("active"));
+        document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add("active");
+        // Update tab content
+        document.querySelectorAll(".tab-content").forEach(el => el.style.display = "none");
+        document.getElementById(`tab-${tab}`).style.display = "flex";
+      }
+
+      // Placeholder functions
+      function openSkill(skillName) {
+        // Insert skill name into chat as a starting prompt
+        const input = document.getElementById("input");
+        input.value = `[${skillName}] `;
+        input.focus();
+        switchTab("chat");
+      }
+      function newAutomation() {
+        alert("Automation editor coming in next iteration. Use Hermes cron CLI for now.");
+      }
+
+      // Load skills from backend
+      async function loadSkills() {
+        const list = document.getElementById("skills-list");
+        list.innerHTML = '<div style="padding:8px; color:#6b7280; font-size:12px;">Loading...</div>';
+        try {
+          const r = await fetch(gateway + "/skills");
+          const j = await r.json();
+          list.innerHTML = "";
+          if (!j.skills || j.skills.length === 0) {
+            list.innerHTML = '<div style="padding:8px; color:#6b7280; font-size:12px;">No skills found</div>';
+            return;
+          }
+          for (const s of j.skills) {
+            const el = document.createElement("div");
+            el.className = "session-item";
+            el.title = s.description || s.name;
+            el.innerHTML = `<div style="font-weight:500;">${escapeHtml(s.name)}</div><div style="font-size:11px; color:#6b7280; margin-top:2px;">${escapeHtml((s.description||"").slice(0, 60))}</div>`;
+            el.onclick = () => openSkill(s.name);
+            list.appendChild(el);
+          }
+        } catch (e) {
+          list.innerHTML = '<div style="padding:8px; color:#ef4444; font-size:12px;">ERROR: ' + e.message + "</div>";
+        }
+      }
+
+      // Load project files
+      async function loadFiles(path = "") {
+        const tree = document.getElementById("files-tree");
+        try {
+          const r = await fetch(gateway + "/files?path=" + encodeURIComponent(path));
+          const j = await r.json();
+          tree.innerHTML = "";
+          if (path) {
+            // parent link
+            const parent = document.createElement("div");
+            parent.style.cssText = "padding-left: 8px; cursor: pointer; color: #5b9dff;";
+            parent.textContent = "📁 ..";
+            parent.onclick = () => loadFiles(path.split("/").slice(0, -1).join("/"));
+            tree.appendChild(parent);
+          }
+          for (const f of j.files || []) {
+            const el = document.createElement("div");
+            const indent = path ? 20 : 8;
+            el.style.cssText = `padding-left: ${indent}px; cursor: ${f.type==='dir'?'pointer':'default'};`;
+            el.textContent = (f.type === "dir" ? "📁 " : "📄 ") + f.name;
+            if (f.type === "dir") {
+              el.onclick = () => loadFiles(f.path);
+            }
+            tree.appendChild(el);
+          }
+        } catch (e) {
+          tree.innerHTML = '<div style="padding:8px; color:#ef4444;">ERROR: ' + e.message + "</div>";
+        }
+      }
+
+      // Load automations from cron
+      async function loadAutomations() {
+        const list = document.getElementById("automations-list");
+        list.innerHTML = '<div style="padding:8px; color:#6b7280; font-size:12px;">Loading...</div>';
+        try {
+          const r = await fetch(gateway + "/automations");
+          const j = await r.json();
+          list.innerHTML = "";
+          if (!j.automations || j.automations.length === 0) {
+            list.innerHTML = '<div style="padding:8px; color:#6b7280; font-size:12px;">No automations configured</div>';
+            return;
+          }
+          for (const a of j.automations) {
+            const el = document.createElement("div");
+            el.className = "session-item";
+            el.innerHTML = `<div style="font-weight:500;">${escapeHtml(a.name || a.id)}</div><div style="font-size:11px; color:#6b7280; margin-top:2px;">⏰ ${escapeHtml(a.schedule)} ${a.enabled ? "" : "(disabled)"}</div>`;
+            list.appendChild(el);
+          }
+        } catch (e) {
+          list.innerHTML = '<div style="padding:8px; color:#ef4444; font-size:12px;">ERROR: ' + e.message + "</div>";
+        }
+      }
+
+      // Load diff when Diff tab is opened
+      async function loadDiff() {
+        const out = document.getElementById("tab-diff");
+        out.innerHTML = '<div style="color: #9ca3af; padding: 20px;">Loading git diff...</div>';
+        try {
+          const r = await fetch(gateway + "/diff");
+          const j = await r.json();
+          if (!j.diff || j.diff.trim() === "") {
+            out.innerHTML = '<div style="color: #9ca3af; padding: 20px;">✓ No changes</div>';
+            return;
+          }
+          // simple line-by-line coloring
+          const colored = j.diff
+            .split("\n")
+            .map((line) => {
+              if (line.startsWith("+")) return `<div style="color:#10b981; background:#0a2e1a; padding: 2px 8px;">${escapeHtml(line)}</div>`;
+              if (line.startsWith("-")) return `<div style="color:#ef4444; background:#2e0a0a; padding: 2px 8px;">${escapeHtml(line)}</div>`;
+              if (line.startsWith("@@")) return `<div style="color:#5b9dff; padding: 2px 8px;">${escapeHtml(line)}</div>`;
+              return `<div style="padding: 2px 8px;">${escapeHtml(line)}</div>`;
+            })
+            .join("");
+          out.innerHTML = colored;
+        } catch (e) {
+          out.innerHTML = '<div style="color: #ef4444; padding: 20px;">ERROR: ' + e.message + "</div>";
+        }
+      }
+
+      // Run terminal command
+      async function runTerminal() {
+        const input = document.getElementById("terminal-input");
+        const output = document.getElementById("terminal-output");
+        const cmd = input.value.trim();
+        if (!cmd) return;
+        const line = document.createElement("div");
+        line.style.color = "#5b9dff";
+        line.textContent = `$ ${cmd}`;
+        output.appendChild(line);
+        input.value = "";
+        try {
+          const r = await fetch(gateway + "/terminal/run", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({command: cmd}),
+          });
+          const j = await r.json();
+          if (j.stdout) {
+            const out = document.createElement("div");
+            out.style.whiteSpace = "pre-wrap";
+            out.textContent = j.stdout;
+            output.appendChild(out);
+          }
+          if (j.stderr) {
+            const err = document.createElement("div");
+            err.style.color = "#ef4444";
+            err.style.whiteSpace = "pre-wrap";
+            err.textContent = j.stderr;
+            output.appendChild(err);
+          }
+          if (j.exit_code !== 0) {
+            const ec = document.createElement("div");
+            ec.style.color = "#f59e0b";
+            ec.textContent = `[exit ${j.exit_code}]`;
+            output.appendChild(ec);
+          }
+        } catch (e) {
+          const err = document.createElement("div");
+          err.style.color = "#ef4444";
+          err.textContent = "ERROR: " + e.message;
+          output.appendChild(err);
+        }
+        output.scrollTop = output.scrollHeight;
+      }
+
+      // Load config into settings panel
+      async function loadSettings() {
+        try {
+          const r = await fetch(gateway + "/config");
+          const j = await r.json();
+          const cfg = j.config || {};
+          const projectInput = document.querySelector('#sidebar-settings input[type="text"]');
+          if (projectInput) projectInput.value = cfg.project_root || "";
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      // Switch view → trigger lazy loads
+      const _origSwitchView = switchView;
+      switchView = function(view) {
+        _origSwitchView(view);
+        if (view === "skills") loadSkills();
+        else if (view === "files") loadFiles("");
+        else if (view === "automation") loadAutomations();
+        else if (view === "settings") loadSettings();
+      };
+
+      // Switch tab → trigger lazy loads
+      const _origSwitchTab = switchTab;
+      switchTab = function(tab) {
+        _origSwitchTab(tab);
+        if (tab === "diff") loadDiff();
+        else if (tab === "terminal") {
+          const out = document.getElementById("terminal-output");
+          if (out && !out.innerHTML) {
+            out.innerHTML = '<div style="color: #9ca3af; padding: 12px;">Terminal ready. Type a command and press Enter.</div>';
+          }
+        }
+      };
 
       async function health() {
         try {

@@ -1,0 +1,50 @@
+{
+  "name": "pure-agent",
+  "version": "1.0.0",
+  "description": "A pure self-built agent runtime with Goal/Plan long-running support.",
+  "main": "main.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-builder --mac",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "build": {
+    "appId": "com.pure-agent.app",
+    "productName": "pure-agent",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "ui/icon.icns",
+      "darkModeSupport": true,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "ui/**/*",
+      "src/**/*",
+      ".venv/**/*",
+      "pyproject.toml",
+      "uv.lock"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lemon890918-png/pura-agent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/lemon890918-png/pura-agent/issues"
+  },
+  "homepage": "https://github.com/lemon890918-png/pura-agent#readme",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}

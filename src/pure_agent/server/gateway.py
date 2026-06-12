@@ -9,6 +9,7 @@ import asyncio
 import os
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -309,7 +310,191 @@ async def chat(session_id: str, req: ChatRequest) -> ChatResponse:
     )
 
 
-@app.post("/sessions/{session_id}/plan", dependencies=[Depends(check_api_key)])
+# ─── New UI API endpoints ────────────────────────────────────────────────
+
+
+class FileNode(BaseModel):
+    name: str
+    path: str
+    type: str  # "file" or "dir"
+    children: list["FileNode"] | None = None
+
+
+@app.get("/files", dependencies=[Depends(check_api_key)])
+async def list_files(path: str = "", recursive: bool = False) -> dict[str, Any]:
+    """List files in the project directory."""
+    from pathlib import Path
+    root = Path(_project_root or os.getcwd())
+    target = root / path if path else root
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="path not found")
+    if not target.is_dir():
+        raise HTTPException(status_code=400, detail="not a directory")
+    
+    files = []
+    for entry in target.iterdir():
+        if entry.name.startswith("."):
+            continue
+        files.append({
+            "name": entry.name,
+            "path": str(entry.relative_to(root)),
+            "type": "dir" if entry.is_dir() else "file",
+        })
+    return {"files": sorted(files, key=lambda x: (x["type"] != "dir", x["name"]))}
+
+
+@app.get("/config", dependencies=[Depends(check_api_key)])
+async def get_config() -> dict[str, Any]:
+    """Get current configuration."""
+    cfg = load_config()
+    return {
+        "config": {
+            "default_model": cfg.raw.get("default_model", "MiniMax-Text-01"),
+            "minimax_api_key": cfg.raw.get("minimax_api_key", ""),
+            "base_url": cfg.raw.get("base_url", "https://api.minimaxi.com/v1"),
+            "project_root": _project_root or os.getcwd(),
+        }
+    }
+
+
+class UpdateConfigRequest(BaseModel):
+    default_model: str | None = None
+    minimax_api_key: str | None = None
+    base_url: str | None = None
+    project_root: str | None = None
+
+
+@app.post("/config", dependencies=[Depends(check_api_key)])
+async def update_config(req: UpdateConfigRequest) -> dict[str, Any]:
+    """Update configuration."""
+    cfg = load_config()
+    updated = {}
+    if req.default_model:
+        cfg.raw["default_model"] = req.default_model
+        updated["default_model"] = req.default_model
+    if req.minimax_api_key:
+        cfg.raw["minimax_api_key"] = req.minimax_api_key
+        updated["minimax_api_key"] = req.minimax_api_key
+    if req.base_url:
+        cfg.raw["base_url"] = req.base_url
+        updated["base_url"] = req.base_url
+    if req.project_root:
+        global _project_root
+        _project_root = req.project_root
+        updated["project_root"] = req.project_root
+    # Save config
+    cfg.save()
+    return {"updated": updated, "status": "ok"}
+
+
+class TerminalRequest(BaseModel):
+    command: str
+    cwd: str | None = None
+
+
+@app.post("/terminal/run", dependencies=[Depends(check_api_key)])
+async def run_terminal(req: TerminalRequest) -> dict[str, Any]:
+    """Run a terminal command."""
+    import subprocess
+    import shlex
+    cwd = req.cwd or _project_root or os.getcwd()
+    try:
+        result = subprocess.run(
+            shlex.split(req.command),
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        return {
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "exit_code": result.returncode
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=408, detail="command timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/skills", dependencies=[Depends(check_api_key)])
+async def list_skills() -> dict[str, Any]:
+    """List discovered skills (from ~/.pure-agent/skills/ and project skills/)."""
+    from pure_agent.skills import discover_skills
+
+    skills_dirs = [
+        Path.home() / ".pure-agent" / "skills",
+        Path(_project_root or os.getcwd()) / "skills",
+        Path(_project_root or os.getcwd()) / "src" / "pure_agent" / "skills",
+    ]
+    seen: set[str] = set()
+    all_skills = []
+    for d in skills_dirs:
+        if d.exists():
+            for s in discover_skills(d):
+                if s.name in seen:
+                    continue
+                seen.add(s.name)
+                all_skills.append({
+                    "name": s.name,
+                    "description": s.description,
+                    "path": str(d),
+                })
+    return {"skills": all_skills}
+
+
+class AutomationRequest(BaseModel):
+    schedule: str
+    prompt: str
+    enabled: bool = True
+
+
+@app.get("/automations", dependencies=[Depends(check_api_key)])
+async def list_automations() -> dict[str, Any]:
+    """List cron jobs that drive the agent (automation UI)."""
+    import json
+    cron_file = Path.home() / ".hermes" / "cron_jobs.json"
+    if not cron_file.exists():
+        return {"automations": []}
+    try:
+        data = json.loads(cron_file.read_text())
+        autos = [
+            {
+                "id": job.get("id", ""),
+                "name": job.get("name") or job.get("prompt", "")[:30],
+                "schedule": job.get("schedule", ""),
+                "prompt": job.get("prompt", ""),
+                "enabled": job.get("enabled", True),
+            }
+            for job in data.get("jobs", [])
+        ]
+        return {"automations": autos}
+    except Exception as e:
+        return {"automations": [], "error": str(e)}
+
+
+@app.get("/diff", dependencies=[Depends(check_api_key)])
+async def get_diff(path: str | None = None) -> dict[str, Any]:
+    """Get git diff for the project or specific file."""
+    import subprocess
+    import shlex
+    cwd = _project_root or os.getcwd()
+    try:
+        cmd = ["git", "diff"]
+        if path:
+            cmd.append(path)
+        result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True
+        )
+        return {"diff": result.stdout, "exit_code": result.returncode}
+    except Exception as e:
+        return {"diff": "", "error": str(e)}
+
+
+# ─── WebSocket ───────────────────────────────────────────────────────────
 async def create_plan(session_id: str, req: PlanRequest) -> PlanInfo:
     s = _mgr().get_or_create(session_id)
     project_root = req.project_root or _project_root

@@ -38,3 +38,7 @@ coverage.xml
 *.db-shm
 *.log
 !docs/**/*.log
+
+# Node / Electron
+node_modules/
+dist/
