@@ -383,6 +383,49 @@ class AIAgentLoop:
                 # describes tool calls in code blocks / function-call syntax
                 # (e.g. ```typescript\nfunctions.write_file({...})```)
                 # instead of actually emitting the tool call.
+                #
+                # Step A — try to EXTRACT a tool call from the prose and
+                # execute it. This rescues the common pattern where the
+                # model writes `functions.write_file({...})` in a code
+                # block instead of using the protocol's tool_calls channel.
+                from pure_agent.agent._tool_extractor import extract_tool_calls
+                extracted = extract_tool_calls(last_assistant_text)
+                if extracted:
+                    first_name, first_args = extracted[0]
+                    tu_block = ToolUseBlock(
+                        tool_call_id="extracted_" + str(turn),
+                        name=first_name,
+                        arguments=first_args,
+                    )
+                    synth_assistant = CanonicalMessage(
+                        role=Role.ASSISTANT,
+                        content=None,
+                        tool_calls=[tu_block],
+                    )
+                    messages.append(synth_assistant)
+                    self._emit("tool_call_start", call=tu_block)
+                    result = await self._execute_tool_call(tu_block)
+                    self._on_tool_call(tu_block.name, tu_block.arguments, result)
+                    if tu_block.name in ("write_file", "edit_file", "create_file"):
+                        self._write_called = True
+                    self._emit("tool_call_end", name=tu_block.name, result=result)
+                    messages.append(CanonicalMessage(
+                        role=Role.TOOL,
+                        content=[ToolResultBlock(
+                            tool_call_id=tu_block.id,
+                            content=str(result.data) if result.is_success else str(result.error),
+                            is_error=not result.is_success,
+                        )],
+                    ))
+                    self._emit("extracted_tool_call", name=tu_block.name, turn=turn)
+                    messages.append(CanonicalMessage.from_text(
+                        Role.USER,
+                        f"\n[System] The {tu_block.name} tool was executed successfully "
+                        f"(extracted from your prose since you described it as text). "
+                        f"Result: {result.data if result.is_success else result.error}. "
+                        f"You can continue, or reply NO_ACTION_NEEDED if done."
+                    ))
+                    continue
                 _js_call_patterns = ("functions.write_file", "functions.edit_file",
                                      "functions.read_file", "tools.write_file",
                                      "tools.edit_file", "```typescript",
