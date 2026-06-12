@@ -47,6 +47,7 @@ from pure_agent.model import (
 )
 from pure_agent.tools.base import Tool, ToolRegistry, ToolResult
 from pure_agent.tools.filesystem import Sandbox
+from pure_agent.hooks import HookContext, HookResult, HookRegistry, register_builtins
 
 
 # typed feedback constants
@@ -127,6 +128,9 @@ class AIAgentLoop:
         checkpointer: Any | None = None,  # Checkpointer
         budget: Any | None = None,  # StepBudget (from TokenBudget)
         tool_timeout_s: float = 120.0,  # per-tool timeout (watchdog)
+        # Phase 12 additions:
+        hooks: HookRegistry | None = None,
+        project_root: Path | None = None,
     ) -> None:
         self.provider = provider
         self.tools = tools
@@ -154,12 +158,39 @@ class AIAgentLoop:
         self.tool_timeout_s = tool_timeout_s
         # track compaction count
         self.compacted_count = 0
+        # Phase 12: hook system
+        if hooks is None:
+            hooks = HookRegistry()
+            register_builtins(hooks)
+        self.hooks = hooks
+        self.project_root = project_root
 
     def _emit(self, event_type: str, **payload: Any) -> None:
         try:
             self._on_event(event_type, payload)
         except Exception:
             pass
+
+    def _suggest_tool(self, name: str) -> str | None:
+        """Best guess for a misnamed tool. Returns None if no good match."""
+        names = list(self.tools._tools.keys())
+        if not names:
+            return None
+        # Exact prefix / suffix match
+        for n in names:
+            if name in n or n in name:
+                return n
+        # Substring overlap
+        name_lower = name.lower()
+        best = None
+        best_score = 0
+        for n in names:
+            n_lower = n.lower()
+            score = sum(1 for a, b in zip(name_lower, n_lower) if a == b)
+            if score > best_score:
+                best_score = score
+                best = n
+        return best if best_score >= 2 else None
 
     async def _stream_one(
         self,
@@ -233,11 +264,39 @@ class AIAgentLoop:
         args, err = tool.validate_args(call.arguments)
         if err is not None:
             return ToolResult.fail(err, code="invalid_arguments")
+
+        # Phase 12: PreToolUse hooks — can deny or modify the call
+        pre_ctx = HookContext(
+            event="PreToolUse",
+            tool_name=call.name,
+            tool_args=args,
+            project_root=self.project_root,
+        )
+        try:
+            pre = self.hooks.run("PreToolUse", pre_ctx)
+            if pre.action == "deny":
+                self._emit("hook_denied", tool=call.name, reason=pre.deny_reason)
+                return ToolResult.fail(
+                    f"tool denied by hook: {pre.deny_reason}",
+                    code="denied_by_hook",
+                )
+            if pre.action == "modify" and pre.modified_args is not None:
+                args, err = tool.validate_args(pre.modified_args)
+                if err is not None:
+                    return ToolResult.fail(
+                        f"hook modified args invalid: {err}",
+                        code="hook_invalid_args",
+                    )
+                call.arguments = pre.modified_args
+        except Exception as e:  # noqa: BLE001
+            # Hook errors are non-fatal — proceed with original args
+            self._emit("hook_error", event="PreToolUse", error=str(e))
+
         # Phase 4: watchdog per-tool timeout
         try:
             from pure_agent.agent.watchdog import run_with_timeout
 
-            return await run_with_timeout(
+            result = await run_with_timeout(
                 tool.execute(**args),
                 timeout_s=self.tool_timeout_s,
                 scope=f"tool:{call.name}",
@@ -247,8 +306,28 @@ class AIAgentLoop:
 
             if isinstance(e, WatchdogTimeout):
                 self._emit("tool_timeout", tool=call.name, timeout_s=self.tool_timeout_s)
-                return ToolResult.fail(str(e), code="tool_timeout")
-            return ToolResult.fail(f"tool execution error: {e}", code="tool_error")
+                result = ToolResult.fail(str(e), code="tool_timeout")
+            else:
+                result = ToolResult.fail(f"tool execution error: {e}", code="tool_error")
+
+        # Phase 12: PostToolUse / PostToolUseFailure hooks
+        post_event = "PostToolUse" if result.ok else "PostToolUseFailure"
+        post_ctx = HookContext(
+            event=post_event,
+            tool_name=call.name,
+            tool_args=args,
+            tool_result=result,
+            project_root=self.project_root,
+            extra=pre_ctx.extra,
+        )
+        try:
+            post = self.hooks.run(post_event, post_ctx)
+            if post.message:
+                self._emit("hook_feedback", tool=call.name, message=post.message)
+        except Exception as e:  # noqa: BLE001
+            self._emit("hook_error", event=post_event, error=str(e))
+
+        return result
 
     async def run(
         self,
@@ -526,7 +605,44 @@ class AIAgentLoop:
                         CanonicalMessage.from_text(
                             Role.USER,
                             f"Tool '{tu.name}' rejected your arguments with: {result.error}. "
-                            "Please retry with corrected arguments that match the JSON schema.",
+                            f"Please retry with corrected arguments that match the JSON schema. "
+                            f"Available tools: {sorted(self.tools._tools.keys())}",
+                            synthetic=True,
+                        )
+                    )
+                elif result.error_code == "unknown_tool":
+                    # Phase 12: smart retry — name was wrong, suggest closest match
+                    suggestion = self._suggest_tool(tu.name)
+                    msg = f"Tool '{tu.name}' is not registered."
+                    if suggestion:
+                        msg += f" Did you mean '{suggestion}'?"
+                    msg += f" Available: {sorted(self.tools._tools.keys())}"
+                    messages.append(
+                        CanonicalMessage.from_text(
+                            Role.USER,
+                            msg,
+                            synthetic=True,
+                        )
+                    )
+                elif result.error_code in ("hunk_apply", "patch_parse", "old_string_not_found", "ambiguous_match"):
+                    # Apply-patch / edit-file specific: tell the model the
+                    # exact issue so it can adjust the hunk and retry.
+                    messages.append(
+                        CanonicalMessage.from_text(
+                            Role.USER,
+                            f"Tool '{tu.name}' failed: {result.error}. "
+                            f"Read the file again with read_file, then either fix the "
+                            f"hunk context (add more surrounding lines) or switch to "
+                            f"write_file to send the complete file content.",
+                            synthetic=True,
+                        )
+                    )
+                elif result.error_code == "denied_by_hook":
+                    messages.append(
+                        CanonicalMessage.from_text(
+                            Role.USER,
+                            f"Tool '{tu.name}' was denied by a hook: {result.error}. "
+                            f"Adjust your call and retry, or take a different approach.",
                             synthetic=True,
                         )
                     )

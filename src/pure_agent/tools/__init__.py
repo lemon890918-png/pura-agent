@@ -1,5 +1,6 @@
 """Tools layer: base, filesystem, search, web search, default registry."""
 
+from pure_agent.tools.apply_patch import ApplyPatchTool
 from pure_agent.tools.base import Tool, ToolRegistry, ToolResult
 from pure_agent.tools.filesystem import (
     EditFileTool,
@@ -24,6 +25,7 @@ __all__ = [
     "ReadFileTool",
     "WriteFileTool",
     "EditFileTool",
+    "ApplyPatchTool",
     "Sandbox",
     "GlobTool",
     "GrepTool",
