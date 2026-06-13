@@ -19,8 +19,11 @@
       "category": "public.app-category.developer-tools",
       "icon": "ui/icon.icns",
       "darkModeSupport": true,
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "entitlements": null,
+      "entitlementsInherit": null
     },
     "files": [
       "main.js",
