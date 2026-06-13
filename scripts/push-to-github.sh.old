@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# push-to-github.sh — 一次性脚本：把 pure-agent 的 2 个本地 commit 推到 github。
+# 用 macOS Keychain 存 PAT，全程 token 不进任何文件 / 命令历史 / 配置文件。
+#
+# 用法（只第一次需要交互）：
+#   1) 准备好你的 GitHub Classic PAT (ghp_...)
+#   2) 在项目根目录执行：bash scripts/push-to-github.sh
+#   3) 提示输入用户名时输入：lemon890918-png
+#   4) 提示输入密码时粘贴：你的 PAT（输入时不显示，是正常现象）
+#   5) PAT 会自动存进 macOS Keychain，下次 push 不再问
+set -euo pipefail
+
+# 让 git 走 9567 代理（你本机的情况：github.com:443 被防火墙 drop，api.github.com 通）
+export https_proxy="http://127.0.0.1:9567"
+export http_proxy="http://127.0.0.1:9567"
+
+# 让 git 凭据存进 macOS Keychain（keychain 加密，不会落盘）
+git config --global credential.helper osxkeychain
+git config --global credential.useHttpPath true
+
+cd "$(dirname "$0")/.."
+
+echo "==> 推送 main 分支到 origin (lemon890918-png/pura-agent) ..."
+git push origin main
+
+echo
+echo "==> 完成。当前 main 已同步："
+git log --oneline -3
